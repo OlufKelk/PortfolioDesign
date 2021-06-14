@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import datetime as dt
 import seaborn as sns
 import pandas_datareader.data as web
 
@@ -10,131 +11,84 @@ import pandas_datareader.data as web
 
 
 def csv_extractor(ticker,apath):
+    # a. reading csv as pandas dataframe, renaming and formating date column
     temp_df = pd.read_csv(apath+ticker+'.csv', usecols = ['Date', 'Price'])
     temp_df = temp_df.rename(columns = {'Price': ticker})
     temp_df['Date'] = pd.to_datetime(temp_df['Date'])
+    # b. sort and index by date
     temp_df = temp_df.sort_values(by = 'Date')
     temp_df = temp_df.set_index('Date', drop = True)
     return temp_df
 
-# def df_generator_csv(tickers, apath):
-#     # i. temporarily storing each df in a list
-#     temp_store = []
-    
-#     # ii. creating a df for each ticker
-#     for i in tickers:
-#         vector = csv_extractor(i, apath)
-#         temp_store.append(vector)
-    
-#     # iii. combining the dfs
-#     df = pd.concat(temp_store, axis = 1)
-#     df = df.fillna(method = 'ffill')
-    
-#     # iv. creating a second df with pct.-returns
-#     rdf = (df/df.shift(1)-1)*100
-    
-#     # v. creating a third df with cumulativ return
-#     cdf = (df/df.shift(1)-1)
-#     for col in cdf.columns:
-#         cdf[col] = np.cumprod(1+cdf[col])*100
-    
-#     return df, rdf, cdf
+
 
 def yahoo_extractor(ticker, start, end):
+    # a. loading total dataset from yahoo
     temp_df = web.DataReader(ticker, 'yahoo', start, end)
-    # temp_df = pd.DataFrame(temp)
-    temp_df = temp_df['Adj Close']
-    temp_df[ticker] = temp_df
-    # temp_df.rename(columns = {'Adj Close': ticker})
-    # temp_df = temp_df.rename(columns = {'Adj Close': ticker})
+    # b. filtering and renaming columns
+    temp_df = pd.DataFrame(temp_df['Adj Close']).rename(columns = {'Adj Close': ticker})
     return temp_df
 
 
-# def df_generator_yahoo(tickers, start, end):
-#     # i. temporarily storing each df in a list
-#     temp_store = []
-    
-#     # ii. creating a df for each ticker
-#     for i in tickers:
-#         vector = yahoo_extractor(i, start, end)
-#         temp_store.append(vector)
-    
-#     # iii. combining the dfs
-#     df = pd.concat(temp_store, axis = 1)
-#     df = df.fillna(method = 'ffill')
-    
-#     # iv. creating a second df with pct.-returns
-#     rdf = (df/df.shift(1)-1)*100
-    
-#     # v. creating a third df with cumulativ return
-#     cdf = (df/df.shift(1)-1)
-#     for col in cdf.columns:
-#         cdf[col] = np.cumprod(1+cdf[col])*100
-    
-#     return df, rdf, cdf
 
 
-def df_generator(tickers, method, start = None, end = None, apath = None):
+def df_generator(tickers, method, apath = None, start = None, end = None):
+    
     # i. temporarily storing each df in a list
     temp_store = []
     
+    # making sure datetime-message only occurs 1 time
+    msg = 0
+
     # ii. creating a df for each ticker
     for i in tickers:
+
+        # ii.a. extracting data from yahoo database
         if method == 'yahoo':
-            # assert start == None, 'please denote a start-time (dt-format) when extracting data'
-            # assert end == None, 'please denote a end-time (dt-format) when extracting data'
+            # Message regarding datatime input
+            if start == None and msg == 0:
+                y5_ago = (dt.datetime.now()-dt.timedelta(days=5*365)).strftime('%Y-%m-%d')
+                msg += 1
+                print(f'No starttime selected, has therefore chosen default closest to (5 years before today) {y5_ago}')
+                
+            if end == None and msg < 2:
+                today = dt.datetime.now().strftime('%Y-%m-%d')
+                msg += 2
+                print(f'No endtime selected, has therefore chosen default closest to (today) {today}')
+
             vector = yahoo_extractor(i, start, end)
+        # ii.b extracting data from investing.com csv-files
         elif method == 'csv':
-            assert apath == None, 'please denote an absolute path to your local csv-files'
+            assert apath != None, 'Please denote the absolute path to csv-file(s)'
             vector = csv_extractor(i, apath)
+        
+        # ii.c doesn't recognize data-extraction-method
         else:
             print('did not recognize method, please use either yahoo or csv')
         temp_store.append(vector)
     
     # iii. combining the dfs
     df = pd.concat(temp_store, axis = 1)
-    df = df.fillna(method = 'ffill')
+    df.columns = tickers # renaming columns
+    df = df.fillna(method = 'ffill') # forwards fills
     
     # iv. creating a second df with pct.-returns
     rdf = (df/df.shift(1)-1)*100
     
-    # v. creating a third df with cumulativ return
+    # v. creating a third df with cumulative return
     cdf = (df/df.shift(1)-1)
     for col in cdf.columns:
         cdf[col] = np.cumprod(1+cdf[col])*100
     
-    # ii. describes data
+    # vi. describes data
     des_df(df)
 
     return df, rdf, cdf
 
 
 
-# def df_generator_yahoo(tickers):
-#     print('Yahoo dataextractor will be implemented later')
-
-
 def des_df(dfs):
     print('Will eventually output description of each ticker in df')
-
-
-# def df_generator(tickers, method = 'yahoo', apath = None):
-    
-#     # i. extracts data
-#     if method == 'yahoo':
-#         df, rdf, cdf = df_generator_yahoo(tickers)
-    
-#     elif method == 'csv':
-#         assert len(apath)>2, 'when using csv-files the absolute path of the folder in which data lies, must be specified'
-#         df, rdf, cdf = df_generator_csv(tickers, apath)
-        
-#     else:
-#         print('doesnt recognize method')
-    
-#     # ii. describes data
-#     des_df(df)
-    
-#     return df, rdf, cdf
 
 
 
@@ -162,7 +116,7 @@ def desc_ticks(data,rdata,cdata,rfree=0):
     # 3rd plot(s): distribution of returns for each ticker
     for i in rdata.columns:
         plt.figure(figsize = (10,7))
-        sns.histplot(rdata[i], kde=True, bins=50).set_title(f'Distribution of returns for {i}')
+        sns.distplot(rdata[i], kde=True, bins=50).set_title(f'Distribution of returns for {i}')
         plt.xlabel('Return')
         plt.ylabel('Frequency')
         plt.show()
@@ -207,4 +161,97 @@ def desc_ticks(data,rdata,cdata,rfree=0):
     
     # iv. display stats
     return stats
+
+
+
+###########
+## to-do ##
+###########
+# histplot vs. distplot
+# one is deprecated, make sure you have relevant version of seaborn
+
+# optimal portfolio
+
+
+
+
+
+
+###############
+## graveyard ##
+###############
+# def df_generator_csv(tickers, apath):
+#     # i. temporarily storing each df in a list
+#     temp_store = []
+    
+#     # ii. creating a df for each ticker
+#     for i in tickers:
+#         vector = csv_extractor(i, apath)
+#         temp_store.append(vector)
+    
+#     # iii. combining the dfs
+#     df = pd.concat(temp_store, axis = 1)
+#     df = df.fillna(method = 'ffill')
+    
+#     # iv. creating a second df with pct.-returns
+#     rdf = (df/df.shift(1)-1)*100
+    
+#     # v. creating a third df with cumulativ return
+#     cdf = (df/df.shift(1)-1)
+#     for col in cdf.columns:
+#         cdf[col] = np.cumprod(1+cdf[col])*100
+    
+#     return df, rdf, cdf
+# def df_generator(tickers, method = 'yahoo', apath = None):
+    
+#     # i. extracts data
+#     if method == 'yahoo':
+#         df, rdf, cdf = df_generator_yahoo(tickers)
+    
+#     elif method == 'csv':
+#         assert len(apath)>2, 'when using csv-files the absolute path of the folder in which data lies, must be specified'
+#         df, rdf, cdf = df_generator_csv(tickers, apath)
+        
+#     else:
+#         print('doesnt recognize method')
+    
+#     # ii. describes data
+#     des_df(df)
+    
+#     return df, rdf, cdf
+
+# def df_generator_yahoo(tickers, start, end):
+#     # i. temporarily storing each df in a list
+#     temp_store = []
+    
+#     # ii. creating a df for each ticker
+#     for i in tickers:
+#         vector = yahoo_extractor(i, start, end)
+#         temp_store.append(vector)
+    
+#     # iii. combining the dfs
+#     df = pd.concat(temp_store, axis = 1)
+#     df = df.fillna(method = 'ffill')
+    
+#     # iv. creating a second df with pct.-returns
+#     rdf = (df/df.shift(1)-1)*100
+    
+#     # v. creating a third df with cumulativ return
+#     cdf = (df/df.shift(1)-1)
+#     for col in cdf.columns:
+#         cdf[col] = np.cumprod(1+cdf[col])*100
+    
+#     return df, rdf, cdf
+
+# def df_generator_yahoo(tickers):
+#     print('Yahoo dataextractor will be implemented later')
+
+
+
+
+
+
+
+
+
 
