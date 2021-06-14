@@ -69,7 +69,6 @@ def df_generator(tickers, method, apath = None, start = None, end = None):
     
     # iii. combining the dfs
     df = pd.concat(temp_store, axis = 1)
-    df.columns = tickers # renaming columns
     df = df.fillna(method = 'ffill') # forwards fills
     
     # iv. creating a second df with pct.-returns
