@@ -39,7 +39,6 @@ def df_generator(tickers, method, apath = None, start = None, end = None):
     
     # making sure datetime-message only occurs 1 time
     msg = 0
-
     # ii. creating a df for each ticker
     for i in tickers:
 
@@ -169,7 +168,21 @@ def desc_ticks(data,rdata,cdata,rfree=0):
 # histplot vs. distplot
 # one is deprecated, make sure you have relevant version of seaborn
 
+
 # optimal portfolio
+## analytical solution (mutual funds theorem)
+## simulated results (in parallel)
+## Get stats for the portfolio
+
+
+# include in stats: 
+## Stats for how much of a normal distribution it is 
+## Value at Risk (see financial econometrics), both normally distributed and skewed
+## Expected Shortfall (see financial econometrics), both normally distributed and skewed
+
+# inlcude in plots:
+## Simulated path
+
 
 
 
