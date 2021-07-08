@@ -1,6 +1,7 @@
 import numpy as np
 from scipy import optimize
 import pandas as pd
+from scipy.stats import norm
 # import matplotlib.pyplot as plt
 # import datetime as dt
 # import seaborn as sns
@@ -83,37 +84,50 @@ def ARCH11_est(ticker, df, printres = True):
 #########
 ## VaR ##
 #########
-def VaR(omega,a,x,alpha,h,M):
+def VaR(omega,a,df,ticker,alpha,h,M):
     # i. initializing
-    T = len(x)
+    logR = data_prep(df,ticker)
+    T = len(logR)
     
     # ii. h period loss
     loss = np.zeros(T-h+1)
     j = 0
     for i in reversed(range(h)):
-        loss -= x[i:T-j]
+        loss -= logR[i:T-j]
         j += 1
               
-    # iii. initializing h period VaR for ARCH(1,1) and gaussian (negative) returns
-    temp = np.zeros(M)
-    temp2 = -np.sqrt(np.var(x))*np.sqrt(h)*norm.ppf(alpha)
-
-    # iv. initializing VaR variable
-    VaR_ARCH11 = np.zeros(T-h+1)
+    # iii. calculating gaussian VaR and ES
+    # Value at Risk
     VaR_gauss = np.zeros(T-h+1)
-              
+    VaR_gauss.fill(-np.sqrt(np.var(logR))*np.sqrt(h)*norm.ppf(alpha))
+    # Expected Shortfall
+    ES_gauss = np.empty(T-h+1)
+    ES_gauss.fill(alpha**(-1)*np.sqrt(np.var(logR))*np.sqrt(2)*norm.ppf(norm.cdf(1-alpha)))
+    # ES_gauss.fill(alpha**(-1)*VaR_gauss[0])
+    
+
+    # iv. initializing VaR and ES array for ARCH(1) simulation
+    VaR_ARCH11 = np.zeros(T-h+1)
+    ES_ARCH1 = np.zeros(T-h+1)
+    temp = np.zeros(M)
+    
+    
     # v. calculating VaR for ARCH(1,1) process
     for ii in range(T-h+1):
         # v.a. simulate (negative) returns for each time period 
         for jj in range(M):
             # v.b. M simulations of (negative) return for each time period 
             z = np.random.normal(loc = 0, scale = 1, size = h) # drawing innovations
-            r1=np.sqrt(omega+a*x[ii]**2)*z[0] # compute return at time i+1
+            r1=np.sqrt(omega+a*logR[ii]**2)*z[0] # compute return at time i+1
+            # v.c. implementing expected shortfall
+            # sigma2 = np.sqrt(omega+a*r1**2)
+            # return in period t+2
+            # r2 = sigma2*z[1]
             r2=np.sqrt(omega+a*r1**2)*z[1] # compute return at time i+2
             temp[jj]=-(r1+r2)# compute two-period loss
         
-        VaR_ARCH11[i] = np.quantile(temp,1-alpha)
-        VaR_gauss[i] = temp2
+        VaR_ARCH11[ii] = np.quantile(temp,1-alpha)
+        ES_ARCH1[ii] =  alpha**(-1)*VaR_gauss[0]*norm.ppf(norm.cdf(alpha))
     # parallelize the above and adapt to varying h
     
     
@@ -121,9 +135,12 @@ def VaR(omega,a,x,alpha,h,M):
     colnames = str(h)+'_period_'
     df=pd.DataFrame(loss, columns=[colnames+'loss'])
     df[colnames+'VaR_gauss']=VaR_gauss
-    df[colnames+'VaR_ARCH']=VaR
+    df[colnames+'ES_gauss']=ES_gauss
+    df[colnames+'VaR_ARCH']=VaR_ARCH11
+    df[colnames+'ES_ARCH']=ES_ARCH1
 
-    return df
+
+    return ES_ARCH1,df
 
 
 
@@ -155,7 +172,8 @@ def VaR(omega,a,x,alpha,h,M):
 ## to-do ##
 ###########
 # parallelize VaR loop and adapt to varying h
-# Vary whether you want to estimate an ARCH(1,1) model or a GARCH model.
-
-
+# Vary whether you want to estimate an ARCH(1) model or a GARCH model.
+# load data properly from github
+# solve gaussian ES!
+# ARCH(1) and not ARCH(1,1)
 
