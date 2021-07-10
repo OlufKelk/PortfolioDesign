@@ -8,8 +8,6 @@ import pandas_datareader.data as web
 ##################
 ## data section ##
 ##################
-
-
 def csv_extractor(ticker,apath):
     # a. reading csv as pandas dataframe, renaming and formating date column
     temp_df = pd.read_csv(apath+ticker+'.csv', usecols = ['Date', 'Price'])
@@ -21,14 +19,12 @@ def csv_extractor(ticker,apath):
     return temp_df
 
 
-
 def yahoo_extractor(ticker, start, end):
     # a. loading total dataset from yahoo
     temp_df = web.DataReader(ticker, 'yahoo', start, end)
     # b. filtering and renaming columns
     temp_df = pd.DataFrame(temp_df['Adj Close']).rename(columns = {'Adj Close': ticker})
     return temp_df
-
 
 
 
@@ -84,7 +80,6 @@ def df_generator(tickers, method, apath = None, start = None, end = None):
     return df, rdf, cdf
 
 
-
 def des_df(dfs):
     print('Will eventually output description of each ticker in df')
 
@@ -93,10 +88,8 @@ def des_df(dfs):
 ####################
 ## describe ticks ##
 ####################
-
-
 def desc_ticks(data,rdata,cdata,rfree=0):
-    
+
     ###########
     ## plots ##
     ###########

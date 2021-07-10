@@ -2,6 +2,7 @@ import numpy as np
 from scipy import optimize
 import pandas as pd
 from scipy.stats import norm
+from numba import njit, prange
 # import matplotlib.pyplot as plt
 # import datetime as dt
 # import seaborn as sns
@@ -22,10 +23,10 @@ def data_prep(df,col):
 
 
 
-###################################
-## estimate ARCH(1,1) parameters ##
-###################################
-def ARCH11_ll(theta,logR):
+#################################
+## estimate ARCH(1) parameters ##
+#################################
+def ARCH1_ll(theta,logR):
     # i. unpacking parameter values
     omega = theta[0]
     alpha = theta[1]
@@ -48,7 +49,7 @@ def ARCH11_ll(theta,logR):
     return LogL
 
 
-def ARCH11_est(ticker, df, printres = True):
+def ARCH1_est(ticker, df, printres = True):
     # i. retrieving data
     logR = data_prep(df,ticker)
     
@@ -56,7 +57,7 @@ def ARCH11_est(ticker, df, printres = True):
     theta0 = ([0.25,2])
     
     # iii. optimizing
-    sol = optimize.minimize(lambda x: ARCH11_ll(x,logR), theta0, bounds = ((1e-8,None),(0,None)))
+    sol = optimize.minimize(lambda x: ARCH1_ll(x,logR), theta0, bounds = ((1e-8,None),(0,None)))
     
     # iv. unpacking estimates
     omega_hat = sol.x[0]
@@ -71,20 +72,21 @@ def ARCH11_est(ticker, df, printres = True):
     
     # vi. printing result
     if printres == True:
-        print(f'Estimating {ticker} as a ARCH(1,1)-model resulted in:')
+        print(f'Estimating {ticker} as a ARCH(1)-model resulted in:')
         print(f'Omega^hat                       --> {omega_hat:.4f} with std. errors ({se_hessian[0]:.4f}) and t-val {omega_hat/se_hessian[0]:.4f}')
         print(f'alpha^hat                       --> {alpha_hat:.4f} with std. errors ({se_hessian[1]:.4f}) and t-val {alpha_hat/se_hessian[1]:.4f}')
         print(f'Maximized log-likelihood        --> {logl:.3f}')
+        print(f'--------------------------------------------------------------------------------------')
     
     
     return omega_hat, alpha_hat, logl
 
 
 
-#########
-## VaR ##
-#########
-def VaR(omega,a,df,ticker,alpha,h,M):
+################
+## VaR and ES ##
+################
+def VaRES(omega,a,df,ticker,alpha,h,M,printres = True):
     # i. initializing
     logR = data_prep(df,ticker)
     T = len(logR)
@@ -102,32 +104,28 @@ def VaR(omega,a,df,ticker,alpha,h,M):
     VaR_gauss.fill(-np.sqrt(np.var(logR))*np.sqrt(h)*norm.ppf(alpha))
     # Expected Shortfall
     ES_gauss = np.empty(T-h+1)
-    ES_gauss.fill(alpha**(-1)*np.sqrt(np.var(logR))*np.sqrt(2)*norm.ppf(norm.cdf(1-alpha)))
-    # ES_gauss.fill(alpha**(-1)*VaR_gauss[0])
+    ES_gauss.fill(np.sqrt(np.var(logR))*np.sqrt(2)*norm.pdf(norm.ppf(1-alpha))/alpha)
     
 
     # iv. initializing VaR and ES array for ARCH(1) simulation
-    VaR_ARCH11 = np.zeros(T-h+1)
+    VaR_ARCH1 = np.zeros(T-h+1)
     ES_ARCH1 = np.zeros(T-h+1)
     temp = np.zeros(M)
     
     
-    # v. calculating VaR for ARCH(1,1) process
-    for ii in range(T-h+1):
+    # v. calculating VaR for ARCH(1) process
+    # VaR has no closed form solution -> VaR is estimated using simulations
+    for i in range(T-h+1):
         # v.a. simulate (negative) returns for each time period 
-        for jj in range(M):
+        for j in range(M):
             # v.b. M simulations of (negative) return for each time period 
             z = np.random.normal(loc = 0, scale = 1, size = h) # drawing innovations
-            r1=np.sqrt(omega+a*logR[ii]**2)*z[0] # compute return at time i+1
-            # v.c. implementing expected shortfall
-            # sigma2 = np.sqrt(omega+a*r1**2)
-            # return in period t+2
-            # r2 = sigma2*z[1]
+            r1=np.sqrt(omega+a*logR[i]**2)*z[0] # compute return at time i+1
             r2=np.sqrt(omega+a*r1**2)*z[1] # compute return at time i+2
-            temp[jj]=-(r1+r2)# compute two-period loss
+            temp[j]=-(r1+r2)# compute two-period loss
         
-        VaR_ARCH11[ii] = np.quantile(temp,1-alpha)
-        ES_ARCH1[ii] =  alpha**(-1)*VaR_gauss[0]*norm.ppf(norm.cdf(alpha))
+        VaR_ARCH1[i] = np.quantile(temp,1-alpha)
+        ES_ARCH1[i] =  np.sqrt(np.var(temp))*norm.pdf(norm.ppf(1-alpha))/alpha
     # parallelize the above and adapt to varying h
     
     
@@ -136,15 +134,227 @@ def VaR(omega,a,df,ticker,alpha,h,M):
     df=pd.DataFrame(loss, columns=[colnames+'loss'])
     df[colnames+'VaR_gauss']=VaR_gauss
     df[colnames+'ES_gauss']=ES_gauss
-    df[colnames+'VaR_ARCH']=VaR_ARCH11
+    df[colnames+'VaR_ARCH']=VaR_ARCH1
     df[colnames+'ES_ARCH']=ES_ARCH1
+    
+    # vii. print result
+    if printres == True:
+        print(f'Risk measures for {ticker}')
+        print(f'------------------------')
+        print(f'Gauss')
+        print(f'-----')
+        print(f'VaR                             --> {VaR_gauss[0]:.2f}')
+        print(f'ES                              --> {ES_gauss[0]:.2f}')
+        print(f'-----------------------------------------')
+        print(f'ARCH(1)')
+        print(f'------')
+        print(f'VaR                             --> {np.mean(VaR_ARCH1):.2f}')
+        print(f'ES                              --> {np.mean(ES_ARCH1):.2f}')
+        print(f'-----------------------------------------')
+
+    return df
 
 
-    return ES_ARCH1,df
+def VaRESz(omega,a,df,ticker,alpha,h,M,printres = True):
+    # i. initializing
+    logR = data_prep(df,ticker)
+    T = len(logR)
+    
+    # ii. h period loss
+    loss = np.zeros(T-h+1)
+    j = 0
+    for i in reversed(range(h)):
+        loss -= logR[i:T-j]
+        j += 1
+              
+    # iii. calculating gaussian VaR and ES
+    # Value at Risk
+    VaR_gauss = np.zeros(T-h+1)
+    VaR_gauss.fill(-np.sqrt(np.var(logR))*np.sqrt(h)*norm.ppf(alpha))
+    # Expected Shortfall
+    ES_gauss = np.empty(T-h+1)
+    ES_gauss.fill(np.sqrt(np.var(logR))*np.sqrt(2)*norm.pdf(norm.ppf(1-alpha))/alpha)
+    
+
+    # iv. initializing VaR and ES array for ARCH(1) simulation
+    VaR_ARCH1 = np.zeros(T-h+1)
+    ES_ARCH1 = np.zeros(T-h+1)
+    temp = np.zeros(M)
+    
+    # v. drawing innovations
+    z = np.random.normal(loc = 0, scale = 1, size = (T-h+1,M,h)) # drawing innovations
+    
+    # v. calculating VaR for ARCH(1) process
+    # VaR has no closed form solution -> VaR is estimated using simulations
+    for i in range(T-h+1):
+        # v.a. simulate (negative) returns for each time period 
+        for j in range(M):
+            # v.b. M simulations of (negative) return for each time period 
+            r1=np.sqrt(omega+a*logR[i]**2)*z[i,j,0] # compute return at time i+1
+            r2=np.sqrt(omega+a*r1**2)*z[i,j,1] # compute return at time i+2
+            temp[j]=-(r1+r2)# compute two-period loss
+        
+        VaR_ARCH1[i] = np.quantile(temp,1-alpha)
+        ES_ARCH1[i] =  np.sqrt(np.var(temp))*norm.pdf(norm.ppf(1-alpha))/alpha
+    # parallelize the above and adapt to varying h
+    
+    
+    # vi. create dataframe with VaR
+    colnames = str(h)+'_period_'
+    df=pd.DataFrame(loss, columns=[colnames+'loss'])
+    df[colnames+'VaR_gauss']=VaR_gauss
+    df[colnames+'ES_gauss']=ES_gauss
+    df[colnames+'VaR_ARCH']=VaR_ARCH1
+    df[colnames+'ES_ARCH']=ES_ARCH1
+    
+    # vii. print result
+    if printres == True:
+        print(f'Risk measures for {ticker}')
+        print(f'------------------------')
+        print(f'Gauss')
+        print(f'-----')
+        print(f'VaR                             --> {VaR_gauss[0]:.2f}')
+        print(f'ES                              --> {ES_gauss[0]:.2f}')
+        print(f'-----------------------------------------')
+        print(f'ARCH(1)')
+        print(f'------')
+        print(f'VaR                             --> {np.mean(VaR_ARCH1):.2f}')
+        print(f'ES                              --> {np.mean(ES_ARCH1):.2f}')
+        print(f'-----------------------------------------')
+
+    return df
 
 
+def VaRESzmj(omega,a,df,ticker,alpha,h,M,printres = True):
+    # i. initializing
+    logR = data_prep(df,ticker)
+    T = len(logR)
+    
+    # ii. h period loss
+    loss = np.zeros(T-h+1)
+    j = 0
+    for i in reversed(range(h)):
+        loss -= logR[i:T-j]
+        j += 1
+              
+    # iii. calculating gaussian VaR and ES
+    # Value at Risk
+    VaR_gauss = np.zeros(T-h+1)
+    VaR_gauss.fill(-np.sqrt(np.var(logR))*np.sqrt(h)*norm.ppf(alpha))
+    # Expected Shortfall
+    ES_gauss = np.empty(T-h+1)
+    ES_gauss.fill(np.sqrt(np.var(logR))*np.sqrt(2)*norm.pdf(norm.ppf(1-alpha))/alpha)
+    
+    # iv. initializing relevant arrays for ARCH(1) simulation
+    VaR_ARCH1 = np.zeros(T-h+1)
+    ES_ARCH1 = np.zeros(T-h+1)
+    r1 = np.zeros(M)
+    r2 = np.zeros(M)
+    r1r2 = np.zeros((T-h+1,M))
+    
+    # v. drawing innovations
+    z = np.random.normal(loc = 0, scale = 1, size = (T-h+1,M,h))
+    
+    # v. calculating VaR for ARCH(1) process
+    # VaR has no closed form solution -> VaR is calculated using simulations
+    for i in range(T-h+1):
+        # v.a. simulate (negative) returns for each time period 
+        r1 = np.sqrt(omega+a*logR[i]**2)*z[i,:,0]
+        r2 = np.sqrt(omega+a*r1**2)*z[i,:,1]
+        r1r2[i,:] = -(r1+r2)
+        VaR_ARCH1[i] = np.quantile(r1r2[i],1-alpha)
+        ES_ARCH1[i] =  np.sqrt(np.var(r1r2[i]))*norm.pdf(norm.ppf(1-alpha))/alpha
+
+    # vi. create dataframe with VaR
+    colnames = str(h)+'_period_'
+    df=pd.DataFrame(loss, columns=[colnames+'loss'])
+    df[colnames+'VaR_gauss']=VaR_gauss
+    df[colnames+'ES_gauss']=ES_gauss
+    df[colnames+'VaR_ARCH']=VaR_ARCH1
+    df[colnames+'ES_ARCH']=ES_ARCH1
+    
+    # vii. print result
+    if printres == True:
+        print(f'Risk measures for {ticker}')
+        print(f'------------------------')
+        print(f'Gauss')
+        print(f'-----')
+        print(f'VaR                             --> {VaR_gauss[0]:.2f}')
+        print(f'ES                              --> {ES_gauss[0]:.2f}')
+        print(f'-----------------------------------------')
+        print(f'ARCH(1)')
+        print(f'------')
+        print(f'VaR (average)                   --> {np.mean(VaR_ARCH1):.2f}')
+        print(f'ES  (average)                   --> {np.mean(ES_ARCH1):.2f}')
+        print(f'-----------------------------------------')
+
+    return df
 
 
+def VaRESzmji(omega,a,df,ticker,alpha,h,M,printres = True):
+    # i. initializing
+    logR = data_prep(df,ticker)
+    T = len(logR)
+    
+    # ii. h period loss
+    loss = np.zeros(T-h+1)
+    j = 0
+    for i in reversed(range(h)):
+        loss -= logR[i:T-j]
+        j += 1
+              
+    # iii. calculating gaussian VaR and ES
+    # Value at Risk
+    VaR_gauss = np.zeros(T-h+1)
+    VaR_gauss.fill(-np.sqrt(np.var(logR))*np.sqrt(h)*norm.ppf(alpha))
+    # Expected Shortfall
+    ES_gauss = np.empty(T-h+1)
+    ES_gauss.fill(np.sqrt(np.var(logR))*np.sqrt(2)*norm.pdf(norm.ppf(1-alpha))/alpha)
+    
+    # iv. initializing relevant arrays for ARCH(1) simulation
+    VaR_ARCH1 = np.zeros(T-h+1)
+    ES_ARCH1 = np.zeros(T-h+1)
+    r1 = np.zeros(M)
+    r2 = np.zeros(M)
+    r1r2 = np.zeros((T-h+1,M))
+    
+    # v. drawing innovations
+    z = np.random.normal(loc = 0, scale = 1, size = (T-h+1,M,h))
+    
+    # v. calculating VaR for ARCH(1) process
+    # VaR has no closed form solution -> VaR is calculated using simulations
+    for i in range(T-h+1):
+        # v.a. simulate (negative) returns for each time period 
+        r1 = np.sqrt(omega+a*logR[i]**2)*z[i,:,0]
+        r2 = np.sqrt(omega+a*r1**2)*z[i,:,1]
+        r1r2[i,:] = -(r1+r2)
+        VaR_ARCH1[i] = np.quantile(r1r2[i],1-alpha)
+        ES_ARCH1[i] =  np.sqrt(np.var(r1r2[i]))*norm.pdf(norm.ppf(1-alpha))/alpha
+
+    # vi. create dataframe with VaR
+    colnames = str(h)+'_period_'
+    df=pd.DataFrame(loss, columns=[colnames+'loss'])
+    df[colnames+'VaR_gauss']=VaR_gauss
+    df[colnames+'ES_gauss']=ES_gauss
+    df[colnames+'VaR_ARCH']=VaR_ARCH1
+    df[colnames+'ES_ARCH']=ES_ARCH1
+    
+    # vii. print result
+    if printres == True:
+        print(f'Risk measures for {ticker}')
+        print(f'------------------------')
+        print(f'Gauss')
+        print(f'-----')
+        print(f'VaR                             --> {VaR_gauss[0]:.2f}')
+        print(f'ES                              --> {ES_gauss[0]:.2f}')
+        print(f'-----------------------------------------')
+        print(f'ARCH(1)')
+        print(f'------')
+        print(f'VaR (average)                   --> {np.mean(VaR_ARCH1):.2f}')
+        print(f'ES  (average)                   --> {np.mean(ES_ARCH1):.2f}')
+        print(f'-----------------------------------------')
+
+    return df
 
 
 #########
@@ -171,9 +381,12 @@ def VaR(omega,a,df,ticker,alpha,h,M):
 ###########
 ## to-do ##
 ###########
-# parallelize VaR loop and adapt to varying h
-# Vary whether you want to estimate an ARCH(1) model or a GARCH model.
+# adapt VAR and ES to varying h
+# find some way to include datetime for each ticker (in plot of VaR and ES)
+# create GARCH(1,1) model
+# Vary whether you want to estimate an ARCH(1) model or a GARCH(1,1) model.
 # load data properly from github
-# solve gaussian ES!
-# ARCH(1) and not ARCH(1,1)
+# create figure for VaR and ES
+# add docstrings
+# calculate simple unconditional valuation of VaR E[loss>VaR] should be (close to) alpha
 
