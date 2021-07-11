@@ -13,6 +13,7 @@ def csv_extractor(ticker,apath):
     temp_df = pd.read_csv(apath+ticker+'.csv', usecols = ['Date', 'Price'])
     temp_df = temp_df.rename(columns = {'Price': ticker})
     temp_df['Date'] = pd.to_datetime(temp_df['Date'])
+    
     # b. sort and index by date
     temp_df = temp_df.sort_values(by = 'Date')
     temp_df = temp_df.set_index('Date', drop = True)
@@ -22,10 +23,11 @@ def csv_extractor(ticker,apath):
 def yahoo_extractor(ticker, start, end):
     # a. loading total dataset from yahoo
     temp_df = web.DataReader(ticker, 'yahoo', start, end)
+    # here one could do web.DataReader()['Adj Close']
+    
     # b. filtering and renaming columns
     temp_df = pd.DataFrame(temp_df['Adj Close']).rename(columns = {'Adj Close': ticker})
     return temp_df
-
 
 
 def df_generator(tickers, method, apath = None, start = None, end = None):
@@ -82,7 +84,6 @@ def df_generator(tickers, method, apath = None, start = None, end = None):
 
 def des_df(dfs):
     print('Will eventually output description of each ticker in df')
-
 
 
 ####################
@@ -154,6 +155,30 @@ def desc_ticks(data,rdata,cdata,rfree=0):
     return stats
 
 
+######################
+## optimal porfolio ##
+######################
+
+
+##########################################
+## analytical solution: 2 funds theorem ##
+##########################################
+
+
+
+
+
+
+
+
+
+############################
+## monte carlo simulation ##
+############################
+
+
+
+
 
 ###########
 ## to-do ##
@@ -176,9 +201,13 @@ def desc_ticks(data,rdata,cdata,rfree=0):
 # inlcude in plots:
 ## Simulated path
 
+# add docstrings
 
-
-
+# important
+# should not use fillnas when generating dataframe.
+## data will look stable when estimating as ARCH(1)
+## however having na's will probably fuck up the percentage returns?
+## perhaps one should use log returns all the way through.
 
 
 
@@ -250,6 +279,7 @@ def desc_ticks(data,rdata,cdata,rfree=0):
 
 # def df_generator_yahoo(tickers):
 #     print('Yahoo dataextractor will be implemented later')
+
 
 
 
