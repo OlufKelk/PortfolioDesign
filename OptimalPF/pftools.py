@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import datetime as dt
 import seaborn as sns
 import pandas_datareader.data as web
+from scipy import optimize
 
 ##################
 ## data section ##
@@ -51,7 +52,7 @@ def df_generator(tickers, method, apath = None, start = None, end = None):
             if end == None and msg < 2:
                 today = dt.datetime.now().strftime('%Y-%m-%d')
                 msg += 2
-                print(f'No endtime selected, has therefore chosen default closest to (today) {today}')
+                print(f'No endtime selected, has therefore chosen default which is the latest trading day {today}')
 
             vector = yahoo_extractor(i, start, end)
         # ii.b extracting data from investing.com csv-files
@@ -160,9 +161,10 @@ def desc_ticks(data,rdata,cdata,rfree=0):
 ######################
 
 
-##########################################
-## analytical solution: 2 funds theorem ##
-##########################################
+####################################################
+## 1. analytical solution (short-selling allowed) ##
+####################################################
+# take the solutions from notebook
 
 
 
@@ -170,12 +172,107 @@ def desc_ticks(data,rdata,cdata,rfree=0):
 
 
 
+######################################################
+## 2. numerical solution (no short-selling allowed) ##
+######################################################
+# helping function for minimum variance portfolio and efficient tangent portfolio
+def mvar(w,sigma):    
+    # i. normalizing weights
+    nw = w/sum(w)
+    
+    # ii. calculating variance based on given weights
+    variance = nw @ sigma @ nw
+    
+    return variance
 
 
-############################
-## monte carlo simulation ##
-############################
+# helping function for efficient tangent portfolio
+def efftan(w,sigma,mu):
+    # i. normalizing weights
+    nw = w/sum(w)
 
+    # ii. calvulating yearly variance+standard deviation based on given weights
+    variance = w @ sigma @ w
+    sd = np.sqrt(variance)
+
+    # iii. calculating yearly return
+    r = nweights @ mu
+    
+    # iv. calculating respective sharpe ratio (with no risk-free asset)
+    sharperatio = r/sd
+    
+    return sharperatio
+
+
+
+
+
+
+# Uses multistart to alleviate problem with local minima (due to non-convexities)
+def opt_mvar(df,N=50):
+    # i. preparing data
+    logrdf = np.log(df).diff().dropna()*100
+    # calculating covariance matrix -> from daily to yearly
+    sigma = logrdf.cov()*252
+    
+    # ii. initiating
+    names = df.columns
+    M = len(names)
+    w0s = np.random.uniform(1e-8,1-1e-8,size = (N,M))
+    ws = np.empty((N,M))
+    fs = np.empty(N)
+    # optimal variance + its weights
+    fopt = np.inf
+    wopt = np.nan
+    
+    
+    # iii. objective function
+    obj = lambda x: mvar(x,sigma)
+
+    # iv. bounds, weights cannot be negative, i.e. short-selling is not allowed
+    bound = (1e-8,1-1e-8)
+    bounds = ((bound, ) * M)
+    
+    # v. multistart using SLSQP (bounded) minimizer
+    for i, w0 in enumerate(w0s):
+        # a. bounded optimization for given initial weights
+        result = optimize.minimize(obj,w0,method = 'SLSQP',
+                                  bounds=bounds)
+        
+        # b. storing solution (variance + its weights)
+        ws[i,:] = result.x
+        f = result.fun
+
+        # c. printing first 5 optimizations or if better than previously seen
+        if i < 5 or f < fopt:
+            # 1. normalizing and making presentable
+            w0 = [round(w,2) for w in w0]
+            weights = ws[i]/sum(ws[i])*100 
+            weights = [round(w,2) for w in weights]
+            
+            # 2. storing optimal value
+            if f < fopt:
+                fopt = f
+                wopt = weights
+            
+            # 3. print statement
+            print(f'Attempt {i+1}: w0 (initial guess) = {w0}\n')
+            print(f'Weights converged at {weights} with variance = {f:.2f}\n')
+            print(f'----------------------------------------------------------------------')
+    
+    # vi. saving weights and ticker name
+    mvardf = pd.DataFrame({'ticker':names, 'weight':wopt})
+    mvardf = mvardf.set_index('ticker')
+    
+    
+    # vii. printing best solution
+    print(f'\nThe minimum variance portfolio from {N} total attemps resulted in:\n{mvardf} \nWith variance = {fopt:.2f}')
+    print(f'----------------------')
+    
+    return wopt, fopt
+
+
+# if statement: if efficient tangent, more variables (+mu expected yearly return) and not variance optimized but sharpe ratio
 
 
 
@@ -201,7 +298,7 @@ def desc_ticks(data,rdata,cdata,rfree=0):
 # inlcude in plots:
 ## Simulated path
 
-# add docstrings
+
 
 # important
 # should not use fillnas when generating dataframe.

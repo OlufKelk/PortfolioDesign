@@ -114,6 +114,7 @@ def ARCH1_est(ticker, df, printres = True):
     # vi. printing result
     if printres == True:
         print(f'Estimating {ticker} as a ARCH(1)-model resulted in:')
+        print(f'--------------------------------------------------------------------------------------')
         print(f'Omega^hat                       --> {omega_hat:.4f} with std. errors ({se_hessian[0]:.4f}) and t-val {omega_hat/se_hessian[0]:.4f}')
         print(f'alpha^hat                       --> {alpha_hat:.4f} with std. errors ({se_hessian[1]:.4f}) and t-val {alpha_hat/se_hessian[1]:.4f}')
         print(f'Maximized log-likelihood        --> {logl:.3f}')
@@ -174,7 +175,7 @@ def VaRES(omega,a,df,ticker,alpha,h,M,printres = True):
     
     # v. calculating VaR and ES for ARCH(1) process
     # in this case VaR and ES has no closed form solution -> therefore calculated using simulations
-    assert h < 4, 'VaR and ES only supported for 1, 2 and 3 period losses'
+    assert h < 4, f'VaR and ES only supported for 1, 2 and 3 period losses, not h={h}.'
     if h == 1:
         simr = -np.sqrt(omega+a*logR**2)*np.transpose(z[:,:,0])
     elif h == 2:
@@ -187,9 +188,13 @@ def VaRES(omega,a,df,ticker,alpha,h,M,printres = True):
         r3 = np.sqrt(omega+a*r2**2)*np.transpose(z[:,:,2])
         simr = -(r1+r2+r3)
     
-    VaR_ARCH1 = np.quantile(simr,1-alpha, axis = 0)
+    VaR_ARCH1 = np.quantile(simr,1-alpha, axis = 0) # approximate VaR based on simulated losses
+    # the two lines below apply for a GARCH process where r_t+h isn't conditionally gaussian (conditional on I_t)
+#     loss_exceeds_VaR = simr > VaR_ARCH1[None,]
+#     ES_ARCH1 = np.mean(simr*loss_exceeds_VaR, axis = 0)/alpha # approximate ES based on simulated losses and VaR
+    # However in an ARCH(1)-process, this isn't a problem
     ES_ARCH1 =  np.sqrt(np.var(simr, axis = 0))*norm.pdf(norm.ppf(1-alpha))/alpha
-
+    
     # vi. calculating the coverage of gaussian and ARCH(1) VaR
     hit = loss > VaR_ARCH1
     coverage = np.mean(hit)    
