@@ -52,7 +52,7 @@ def df_generator(tickers, method, apath = None, start = None, end = None):
             if end == None and msg < 2:
                 today = dt.datetime.now().strftime('%Y-%m-%d')
                 msg += 2
-                print(f'No endtime selected, has therefore chosen default which is the latest trading day {today}')
+                print(f'No endtime selected, has therefore chosen default which is the latest trading day as of {today}')
 
             vector = yahoo_extractor(i, start, end)
         # ii.b extracting data from investing.com csv-files
@@ -126,6 +126,7 @@ def desc_ticks(data,rdata,cdata,rfree=0):
     a_cr = np.nan*np.zeros(sol_shape)
     
     # ii. calculating stats for each ticker
+    # fix the characteristics! annualized return is much easier to compute
     for i, col in enumerate(rdata.columns):
         # a. storing number of days the ticker has been around
         start = data[col].first_valid_index()
@@ -137,7 +138,10 @@ def desc_ticks(data,rdata,cdata,rfree=0):
         ar = round(((1+absolute_return)**(1/(no_days/252))-1)*100,2)
         vol = round(rdata[col].std()*np.sqrt(252),2)
         sr = round((ar - rfree) / vol,2)
-        cr = round(ar / abs(rdata[col].min()),2)
+        monthlyreturn = (data[col]/data[col].shift(21)-1)*100
+        drawdown = np.abs(monthlyreturn.min())
+        cr = round(ar/drawdown,2)
+        # cr = round(ar / abs(data[col]/data[col].shift(21).min()),2)
 
         # c. storing stats
         a_returns[i] = ar
@@ -232,20 +236,21 @@ def tan_analytical(sigma,mu,printres = True):
 
 def ana_optimal_portfolios(df):
     # i. calculating relevant data for optimal portfolios
-    logrdf = np.log(df).diff().dropna()*100
+    logrdf = np.log(df).diff()*100
     sigma = logrdf.cov()*252
     mu = logrdf.mean()*252
     
     # ii. calling analytical optimizers
     wmvdf,statmvdf = mvar_analytical(sigma,mu)
     wtandf,stattandf = tan_analytical(sigma,mu)
+    print(f'\nCannot analytically solve the maximum calmar ratio portfolio')
     
 
 
-######################################################
-## 2. numerical solution (no short-selling allowed) ##
-######################################################
-# helping function for minimum variance portfolio and efficient tangent portfolio
+###########################
+## 2. numerical solution ##
+###########################
+# helping function for minimum variance portfolio
 def mvar(w,sigma):    
     # i. normalizing weights
     nw = w/sum(w)
@@ -261,22 +266,42 @@ def tangent(w,sigma,mu):
     # i. normalizing weights
     nw = w/sum(w)
 
-    # ii. calvulating yearly variance+standard deviation based on given weights
+    # ii. calculating yearly variance+standard deviation based on given weights
     variance = nw @ sigma @ nw
     sd = np.sqrt(variance)
 
     # iii. calculating yearly return
     r = nw @ mu
     
-    # iv. calculating respective sharpe ratio (with no risk-free asset)
+    # iv. calculating respective sharpe ratio (with risk-free return = 0)
     sharperatio = r/sd
     
     return sharperatio
 
 
+# helping function for the max camlar ration portfolio
+def calmar(w,df,mu):
+    # i. normalizing weights
+    nw = w/sum(w)
+
+    # ii. calulating the max monthly drawdown of portfolio based on weights
+    pfprice = np.sum(nw.T*df,axis = 1)
+    monthlyreturn = (pfprice/pfprice.shift(21)-1)*100
+    drawdown = np.abs(monthlyreturn.min())
+    
+    # iii. calculating yearly return
+    r = nw @ mu
+        
+    # iv. calculating the portfolios respective calmar ratio ratio (with risk-free return = 0)
+    calmarratio = r/drawdown
+    
+    return calmarratio
+
+
 def num_optimal_portfolios(df,N=50,shorting = False):
     # i. preparing data
     logrdf = np.log(df).diff().dropna()*100
+    logrdf = np.log(df).diff()*100
     sigma = logrdf.cov()*252
     mu = logrdf.mean()*252
     
@@ -288,20 +313,18 @@ def num_optimal_portfolios(df,N=50,shorting = False):
     
     
     # ii. storing results for each of the portfolios
-    mvwdf, mwstatsdf = optimize_pf('minvar',sigma,mu,N,shorting)
-    twdf, tstatsdf = optimize_pf('tangent',sigma,mu,N,shorting)
-    # cw, cv, cr,  tvsr, tvcr = optimize_pf('calmar',sigma,N) # will be developed eventually?
+    mvwdf, mwstatsdf = optimize_pf('minvar',sigma,mu,df,N,shorting)
+    twdf, tstatsdf = optimize_pf('tangent',sigma,mu,df,N,shorting)
+    cwdf, cstatsdf = optimize_pf('calmar',sigma,mu,df,N,shorting)
     
 
 
 
 
-def optimize_pf(pftype,sigma,mu,N,shorting = False):
+def optimize_pf(pftype,sigma,mu,df,N,shorting = False):
     # i. initiating
-    names = sigma.columns
+    names = df.columns
     M = len(names)
-    ws = np.empty((N,M))
-    fs = np.empty(N) # 
     fopt = np.inf # initialize optimal value
     wopt = np.nan # initialize optimal weights
     
@@ -310,9 +333,13 @@ def optimize_pf(pftype,sigma,mu,N,shorting = False):
     if shorting == True:
         w0s = np.random.uniform(-1+1e-8,1-1e-8,size = (N,M))
         bound = (-1+1e-8,1-1e-8)
+        if pftype == 'calmar':
+            print(f'Currently no numerical solution for maximum calmar ratio portfolio with shorting - will therefore be solved for\nSHORTING IS NOT ALLOWED')
+            # bounds, weights cannot be negative, i.e. short-selling is not allowed
+            w0s = np.random.uniform(1e-8,1-1e-8,size = (N,M))
+            bound = (1e-8,1-1e-8)
     else:
         # bounds, weights cannot be negative, i.e. short-selling is not allowed
-        np.random.seed(1986)
         w0s = np.random.uniform(1e-8,1-1e-8,size = (N,M))
         bound = (1e-8,1-1e-8)
     bounds = ((bound, ) * M)
@@ -328,13 +355,12 @@ def optimize_pf(pftype,sigma,mu,N,shorting = False):
         print(f'Will numerically solve the efficient tangent portfolio')
     elif pftype == 'calmar':
         optimizing = 'Calmar Ratio'
-#         obj = lambda x: calmar(x,df)
+        obj = lambda x: -calmar(x,df,mu)
         print(f'Will numerically solve the calmar portfolio')
-        print(f'will be developed')
     else:
         print(f'Can only optimize portfolios: minimum variance (pftype = minvar), efficient tangent (pftype = tangent) and calmar ratio (pftype = calmar)')
     
-    print(f'\nMultistart optimizing - prints everytime the optimal solution improves ')
+    print(f'\nMultistart optimizing - prints every time the optimal solution improves ')
     print(f'-----------------------------------------------------------------------------------------------')
     # v. multistart using SLSQP (bounded) minimizer
     for i, w0 in enumerate(w0s):
@@ -342,14 +368,14 @@ def optimize_pf(pftype,sigma,mu,N,shorting = False):
         result = optimize.minimize(obj,w0,method = 'SLSQP',
                                   bounds=bounds)
         
-        # b. storing solution (variance + its weights)
-        ws[i,:] = result.x
+        # b. storing solution (optimized value and its weights)
+        ws = result.x
         f = result.fun
 
         # c. printing first 5 optimizations or if better than previously seen
-        if i < 1 or f < fopt:
+        if f < fopt:
             # 1. normalizing
-            weights = ws[i,:]/sum(ws[i,:])
+            weights = ws/sum(ws)
             
             # 2. storing optimal value
             if f < fopt:
@@ -373,11 +399,15 @@ def optimize_pf(pftype,sigma,mu,N,shorting = False):
     if pftype == 'minvar':
         vopt = fopt
         sropt = ropt/np.sqrt(vopt)
+        cropt = calmar(wopt,df,mu)
     elif pftype == 'tangent':
         vopt = wopt@sigma@wopt
         sropt = -fopt
+        cropt = calmar(wopt,df,mu)
     else:
-        print('will be done')
+        vopt = wopt@sigma@wopt
+        sropt = ropt/np.sqrt(vopt)
+        cropt = -fopt
     
     # vi. saving weights and portfolio stats
     nwopt = wopt*100
@@ -385,7 +415,8 @@ def optimize_pf(pftype,sigma,mu,N,shorting = False):
     wpfdf = pd.DataFrame({'ticker':names, 'weight':nwopt})
     wpfdf = wpfdf.set_index('ticker')
     statspfdf = pd.DataFrame.from_dict({'variance':round(vopt,2), 'std':round(np.sqrt(vopt),2),
-                                        'return':round(ropt,2), 'sharpe-ratio':round(sropt,2)},
+                                        'return':round(ropt,2), 'sharpe-ratio':round(sropt,2),
+                                        'calmar-ratio':round(cropt,2)},
                                        orient = 'index', columns = ['stats'])
     
     
