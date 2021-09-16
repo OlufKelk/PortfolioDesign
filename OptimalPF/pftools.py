@@ -109,7 +109,7 @@ def desc_ticks(data,rdata,cdata,rfree=0):
     # 3rd plot(s): distribution of returns for each ticker
     for i in rdata.columns:
         plt.figure(figsize = (10,7))
-        sns.distplot(rdata[i], kde=True, bins=50).set_title(f'Distribution of returns for {i}')
+        sns.histplot(rdata[i], kde=True, bins=50).set_title(f'Distribution of returns for {i}')
         plt.xlabel('Return')
         plt.ylabel('Frequency')
         plt.show()
@@ -123,10 +123,10 @@ def desc_ticks(data,rdata,cdata,rfree=0):
     a_returns = np.nan*np.zeros(sol_shape)
     a_volatilities = np.nan*np.zeros(sol_shape)
     a_sr = np.nan*np.zeros(sol_shape)
+    m_mdd = np.nan*np.zeros(sol_shape)
     a_cr = np.nan*np.zeros(sol_shape)
     
     # ii. calculating stats for each ticker
-    # fix the characteristics! annualized return is much easier to compute
     for i, col in enumerate(rdata.columns):
         # a. storing number of days the ticker has been around
         start = data[col].first_valid_index()
@@ -135,29 +135,35 @@ def desc_ticks(data,rdata,cdata,rfree=0):
 
         # b. calculating stats
         absolute_return = data[col][data[col].last_valid_index()]/data[col][data[col].first_valid_index()]-1
-        ar = round(((1+absolute_return)**(1/(no_days/252))-1)*100,2)
+        ar = round(((1+absolute_return)**(1/(no_days/365))-1)*100,2)
         vol = round(rdata[col].std()*np.sqrt(252),2)
         sr = round((ar - rfree) / vol,2)
         monthlyreturn = (data[col]/data[col].shift(21)-1)*100
         drawdown = np.abs(monthlyreturn.min())
         cr = round(ar/drawdown,2)
-        # cr = round(ar / abs(data[col]/data[col].shift(21).min()),2)
 
         # c. storing stats
         a_returns[i] = ar
         a_volatilities[i] = vol
         a_sr[i] = sr
+        m_mdd[i] = round(drawdown,2)
         a_cr[i] = cr
 
     # iii. creating dataframe with stats
     stats = pd.DataFrame({'Ticker': rdata.columns,
-                          'annualized_return': a_returns,
-                          'volatility': a_volatilities,
-                          'sharpe_ratio': a_sr,
-                          'calmar_ratio': a_cr})
+                          'Annualized return': a_returns,
+                          'Volatility': a_volatilities,
+                          'Sharpe ratio': a_sr,
+                          '1m max drawdown': m_mdd,
+                          'Calmar ratio': a_cr})
+    
+    stats = stats.set_index('Ticker')
     
     # iv. display stats
-    return stats
+    display(stats)
+    
+    # return mu-vector consisting of the annualized return for each ticker
+    return np.array(stats.loc[:,'Annualized return'])
 
 
 ######################
@@ -169,7 +175,7 @@ def desc_ticks(data,rdata,cdata,rfree=0):
 ## 1. analytical solution (short-selling allowed) ##
 ####################################################
 # Analytical solution for minimum variance portfolio
-def mvar_analytical(sigma,mu,printres = True):
+def mvar_analytical(df,sigma,mu,printres = True):
     # i. calculating the optimal weights for a minimum variance portfolio
     weights = np.linalg.inv(sigma)@np.ones((len(sigma.columns)))
     weights = weights / sum(weights)
@@ -178,31 +184,33 @@ def mvar_analytical(sigma,mu,printres = True):
     variance = weights@sigma@np.transpose(weights)
     sd = np.sqrt(variance)
     pfreturn = weights@mu
+    drawdown, cr = calmar(weights,df,mu)
     
     # iii. creating dataframe containing weights and another with its stats  
     wopt = weights*100
     wopt = [round(w,2) for w in wopt]
     names = sigma.columns
-    wpfdf = pd.DataFrame({'ticker':names, 'weight':wopt})
-    wpfdf = wpfdf.set_index('ticker')
-    statspfdf = pd.DataFrame.from_dict({'variance': round(variance,2), 'std': round(sd,2),
-                                       'return': round(pfreturn,2), 'sharpe-ratio':round(pfreturn/sd,2)},
+    wpfdf = pd.DataFrame({'Ticker':names, 'weight':wopt})
+    wpfdf = wpfdf.set_index('Ticker')
+    statspfdf = pd.DataFrame.from_dict({'Annualized return':round(pfreturn,2), 'Volatility':round(sd,2),
+                                        'Sharpe ratio':round(pfreturn/sd,2),'1m max drawdown':round(drawdown,2),
+                                        'Calmar ratio':round(cr,2)},
                                        orient = 'index', columns = ['stats'])
     
     # iv. printing statement 
     if printres:
             print(f'-----------------------------------------------------------------------------------------------')
             print(f'\nThe analytical solution for the minimum variance portfolio (allows for shorting) resulted in:\n')
-            print(f'{wpfdf}\n')
+            display(wpfdf)
             print(f'With portfolio characteristics:\n')
-            print(f'{statspfdf}\n')
+            display(statspfdf)
             print(f'-----------------------------------------------------------------------------------------------')
     
     return wpfdf, statspfdf
 
 
 # Analytical solution for the efficient tangent portfolio
-def tan_analytical(sigma,mu,printres = True):
+def tan_analytical(df,sigma,mu,printres = True):
     # i. calculating the optimal weights for the efficient tangent portfolio
     weights = np.linalg.inv(sigma) @ mu
     weights = weights / sum(weights)
@@ -211,38 +219,38 @@ def tan_analytical(sigma,mu,printres = True):
     variance = weights@sigma@np.transpose(weights)
     sd = np.sqrt(variance)
     pfreturn = weights@mu
+    drawdown, cr = calmar(weights,df,mu)
     
     # iii. creating dataframe containing weights and another with its stats  
     wopt = weights*100
     wopt = [round(w,2) for w in wopt]
     names = sigma.columns
-    wpfdf = pd.DataFrame({'ticker':names, 'weight':wopt})
-    wpfdf = wpfdf.set_index('ticker')
-    statspfdf = pd.DataFrame.from_dict({'variance': round(variance,2), 'std': round(sd,2),
-                                       'return': round(pfreturn,2), 'sharpe-ratio':round(pfreturn/sd,2)},
+    wpfdf = pd.DataFrame({'Ticker':names, 'weight':wopt})
+    wpfdf = wpfdf.set_index('Ticker')
+    statspfdf = pd.DataFrame.from_dict({'Annualized return':round(pfreturn,2),'Volatility': round(sd,2),
+                                        'Sharpe ratio':round(pfreturn/sd,2),'1m max drawdown':round(drawdown,2),
+                                        'Calmar ratio':round(cr,2)},
                                        orient = 'index', columns = ['stats'])
     
     # iv. printing statement 
     if printres:
             print(f'-----------------------------------------------------------------------------------------------')
             print(f'\nThe analytical solution for the efficient tangent portfolio (allows for shorting) resulted in:\n')
-            print(f'{wpfdf}\n')
+            display(wpfdf)
             print(f'With portfolio characteristics:\n')
-            print(f'{statspfdf}\n')
+            display(statspfdf)
             print(f'-----------------------------------------------------------------------------------------------')
     
     return wpfdf, statspfdf
 
 
-def ana_optimal_portfolios(df):
+def ana_optimal_portfolios(df,rdf,mu):
     # i. calculating relevant data for optimal portfolios
-    logrdf = np.log(df).diff()*100
-    sigma = logrdf.cov()*252
-    mu = logrdf.mean()*252
+    sigma = rdf.cov()*252
     
     # ii. calling analytical optimizers
-    wmvdf,statmvdf = mvar_analytical(sigma,mu)
-    wtandf,stattandf = tan_analytical(sigma,mu)
+    wmvdf,statmvdf = mvar_analytical(df,sigma,mu)
+    wtandf,stattandf = tan_analytical(df,sigma,mu)
     print(f'\nCannot analytically solve the maximum calmar ratio portfolio')
     
 
@@ -279,7 +287,7 @@ def tangent(w,sigma,mu):
     return sharperatio
 
 
-# helping function for the max camlar ration portfolio
+# helping function for the max calmar ration portfolio
 def calmar(w,df,mu):
     # i. normalizing weights
     nw = w/sum(w)
@@ -295,15 +303,13 @@ def calmar(w,df,mu):
     # iv. calculating the portfolios respective calmar ratio ratio (with risk-free return = 0)
     calmarratio = r/drawdown
     
-    return calmarratio
+    return drawdown, calmarratio
 
 
-def num_optimal_portfolios(df,N=50,shorting = False):
+def num_optimal_portfolios(df,mu,N=50,shorting = False):
     # i. preparing data
-    logrdf = np.log(df).diff().dropna()*100
-    logrdf = np.log(df).diff()*100
-    sigma = logrdf.cov()*252
-    mu = logrdf.mean()*252
+    rdf = (df/df.shift(1)-1)*100
+    sigma = rdf.cov()*252
     
     # ii. Stating whether shorting is allowed or not
     if shorting:
@@ -317,7 +323,7 @@ def num_optimal_portfolios(df,N=50,shorting = False):
     twdf, tstatsdf = optimize_pf('tangent',sigma,mu,df,N,shorting)
     cwdf, cstatsdf = optimize_pf('calmar',sigma,mu,df,N,shorting)
     
-
+    return mvwdf, twdf, cwdf
 
 
 
@@ -344,6 +350,7 @@ def optimize_pf(pftype,sigma,mu,df,N,shorting = False):
         bound = (1e-8,1-1e-8)
     bounds = ((bound, ) * M)
 
+    print(f'-----------------------------------------------------------------------------------------------')
     # iii. objective functions
     if pftype == 'minvar':
         optimizing = 'variance'
@@ -355,12 +362,12 @@ def optimize_pf(pftype,sigma,mu,df,N,shorting = False):
         print(f'Will numerically solve the efficient tangent portfolio')
     elif pftype == 'calmar':
         optimizing = 'Calmar Ratio'
-        obj = lambda x: -calmar(x,df,mu)
+        obj = lambda x: -calmar(x,df,mu)[1]
         print(f'Will numerically solve the calmar portfolio')
     else:
         print(f'Can only optimize portfolios: minimum variance (pftype = minvar), efficient tangent (pftype = tangent) and calmar ratio (pftype = calmar)')
     
-    print(f'\nMultistart optimizing - prints every time the optimal solution improves ')
+    print(f'Multistart optimizing - prints every time the optimal solution improves ')
     print(f'-----------------------------------------------------------------------------------------------')
     # v. multistart using SLSQP (bounded) minimizer
     for i, w0 in enumerate(w0s):
@@ -392,31 +399,31 @@ def optimize_pf(pftype,sigma,mu,df,N,shorting = False):
             else:
                 f = -f
             # 4. print statement
-            print(f'Attempt {i+1} of {N} - {pftype} portfolio - with w0 (initial guess) = {w0}\n')
-            print(f'Weights converged at {weights} with {optimizing} = {f:.2f}.\n\n')
+            print(f'Attempt {i+1} of {N} - {pftype} portfolio - with w0 (initial guess) = {w0}')
+            print(f'Weights converged at {weights} with {optimizing} = {f:.2f}.\n')
             
     
     if pftype == 'minvar':
         vopt = fopt
         sropt = ropt/np.sqrt(vopt)
-        cropt = calmar(wopt,df,mu)
+        mdd, cropt = calmar(wopt,df,mu)
     elif pftype == 'tangent':
         vopt = wopt@sigma@wopt
         sropt = -fopt
-        cropt = calmar(wopt,df,mu)
+        mdd, cropt = calmar(wopt,df,mu)
     else:
         vopt = wopt@sigma@wopt
         sropt = ropt/np.sqrt(vopt)
-        cropt = -fopt
+        mdd, cropt = calmar(wopt,df,mu)
     
     # vi. saving weights and portfolio stats
     nwopt = wopt*100
     nwopt = [round(w,2) for w in nwopt]
-    wpfdf = pd.DataFrame({'ticker':names, 'weight':nwopt})
-    wpfdf = wpfdf.set_index('ticker')
-    statspfdf = pd.DataFrame.from_dict({'variance':round(vopt,2), 'std':round(np.sqrt(vopt),2),
-                                        'return':round(ropt,2), 'sharpe-ratio':round(sropt,2),
-                                        'calmar-ratio':round(cropt,2)},
+    wpfdf = pd.DataFrame({'Ticker':names, 'weight':nwopt})
+    wpfdf = wpfdf.set_index('Ticker')
+    statspfdf = pd.DataFrame.from_dict({'Annualized return':round(ropt,2),'Volatility':round(np.sqrt(vopt),2),
+                                         'Sharpe ratio':round(sropt,2),'1m max drawdown':round(mdd,2),
+                                        'Calmar ratio':round(cropt,2)},
                                        orient = 'index', columns = ['stats'])
     
     
@@ -429,9 +436,11 @@ def optimize_pf(pftype,sigma,mu,df,N,shorting = False):
 #     else:
     print(f'-----------------------------------------------------------------------------------------------')
     print(f'\nThe {pftype} portfolio from {N} total attempts (multistart) has converged with no notable differences the optimization outcome.\nThe optimal portfolio ended up being:\n')
-    print(f'{wpfdf}\n')
+    display(wpfdf)
+#     print(f'{wpfdf}\n')
     print(f'With portfolio characteristics:\n')
-    print(f'{statspfdf}\n')
+    display(statspfdf)
+#     print(f'{statspfdf}\n')
     print(f'-----------------------------------------------------------------------------------------------')
     
     return wpfdf, statspfdf
