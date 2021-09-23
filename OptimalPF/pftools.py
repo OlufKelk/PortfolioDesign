@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import datetime as dt
+from dateutil.relativedelta import relativedelta
 import seaborn as sns
 import pandas_datareader.data as web
 from scipy import optimize
@@ -23,11 +24,12 @@ def csv_extractor(ticker,apath):
 
 def yahoo_extractor(ticker, start, end):
     # a. loading total dataset from yahoo
-    temp_df = web.DataReader(ticker, 'yahoo', start, end)
-    # here one could do web.DataReader()['Adj Close']
+#     temp_df = web.DataReader(ticker, 'yahoo', start, end)
+    temp_df = web.DataReader(ticker, 'yahoo', start, end)['Adj Close']
     
     # b. filtering and renaming columns
-    temp_df = pd.DataFrame(temp_df['Adj Close']).rename(columns = {'Adj Close': ticker})
+#     temp_df = pd.DataFrame(temp_df['Adj Close']).rename(columns = {'Adj Close': ticker})
+    temp_df = pd.DataFrame(temp_df).rename(columns = {'Adj Close': ticker})
     return temp_df
 
 
@@ -52,7 +54,7 @@ def df_generator(tickers, method, apath = None, start = None, end = None):
             if end == None and msg < 2:
                 today = dt.datetime.now().strftime('%Y-%m-%d')
                 msg += 2
-                print(f'No endtime selected, has therefore chosen default which is the latest trading day as of {today}')
+                print(f'No endtime selected, has therefore chosen default which is the latest trading day as of {today}\n')
 
             vector = yahoo_extractor(i, start, end)
         # ii.b extracting data from investing.com csv-files
@@ -78,13 +80,26 @@ def df_generator(tickers, method, apath = None, start = None, end = None):
         cdf[col] = np.cumprod(1+cdf[col])*100
     
     # vi. describes data
-    des_df(df)
+    desc_df(df)
 
     return df, rdf, cdf
 
 
-def des_df(dfs):
-    print('Will eventually output description of each ticker in df')
+def desc_df(df):
+    first_obs = df.first_valid_index()
+    first_obs_date = df.first_valid_index().strftime('%d-%m-%Y')
+    print(f'First observation in dataframe is         {first_obs_date}')
+    for i in df.columns:
+        first_i_obs = df[i].first_valid_index()
+        
+        if first_obs < first_i_obs:
+            rdelta = relativedelta(first_i_obs,first_obs)
+            years = round((rdelta.years+rdelta.months/12+rdelta.days/365.2425),2)
+            tradingdays = ((first_i_obs - first_obs)/365.2425*252).days
+            first_i_obs_date = df[i].first_valid_index().strftime('%d-%m-%Y')
+            print(f'Note that {i:10} first appears at the {first_i_obs_date}')
+            print(f'                     This means theres is missing data from the first {years} years, corresponding to approximately {tradingdays} trading days/observations\n')
+        
 
 
 ####################
@@ -163,7 +178,7 @@ def desc_ticks(data,rdata,cdata,rfree=0):
     display(stats)
     
     # return mu-vector consisting of the annualized return for each ticker
-    return np.array(stats.loc[:,'Annualized return'])
+    return np.array(a_returns)
 
 
 ######################
@@ -293,7 +308,7 @@ def calmar(w,df,mu):
     nw = w/sum(w)
 
     # ii. calulating the max monthly drawdown of portfolio based on weights
-    pfprice = np.sum(nw.T*df,axis = 1)
+    pfprice = nw@df.T # this will only be calculated when there is no nans
     monthlyreturn = (pfprice/pfprice.shift(21)-1)*100
     drawdown = np.abs(monthlyreturn.min())
     
@@ -444,6 +459,70 @@ def optimize_pf(pftype,sigma,mu,df,N,shorting = False):
     print(f'-----------------------------------------------------------------------------------------------')
     
     return wpfdf, statspfdf
+
+
+
+
+##################################
+## simple portfolio simulations ##
+##################################
+def sim_pf(rdf, weights, pftype, N = 1000, t = 60):
+    # i. preparing data and storing the simulations
+    np.random.seed = 1995
+    simulations = np.zeros((N,t+1))
+    
+    # ii. drawing t random days N times 
+    for i in range(N):
+        # a. sampling data and calculating the cumulative return
+        rdfcleani = rdf.sample(t)
+        rdfcleani = rdfcleani/100+1
+        rdfcleani = rdfcleani.cumprod()
+        
+        # b. calculating portfolio cumulated return for the 60 days as an array
+        simulations[i,1:] = np.array(weights@rdfcleani.T)-100
+    
+    # iii. converging simulations to dataframe
+    dfsimulations = pd.DataFrame(simulations).T
+    
+    # iv. plotting simulated return paths
+    fig = plt.figure(figsize = (10,6))
+    plt.plot(dfsimulations, linewidth = 1, alpha = .1, color = 'blue')
+    fig.suptitle(f'{N} timeseries of cumulative return over {t} randomly chosen days, for {pftype} portfolio', fontsize = 14)
+    plt.xlabel('Days', fontsize = 12)
+    plt.ylabel('pct. return',fontsize = 12);
+    
+    # v. plotting simulated returns paths quantiles
+    fig = plt.figure(figsize = (10,6))
+    plt.plot(dfsimulations.quantile([.025,.5,.975], axis = 1).T)
+    fig.suptitle(f'{N} timeseries of cumulative return over {t} randomly chosen days, for {pftype} portfolio', fontsize = 14)
+    plt.legend(['2.5 quantile', 'Median','97.5 quantile'])
+    plt.xlabel('Days', fontsize = 12)
+    plt.ylabel('pct. return',fontsize = 12);
+    
+    return dfsimulations
+
+
+
+def simulated_portfolios(mvw, tw, cw, rdf, N = 1000, t = 60, shorting = False):
+    # i. preparing data and weights
+    rdfclean = rdf.dropna()
+    mvw = np.array(mvw).reshape(-1)
+    tw = np.array(tw).reshape(-1)
+    cw = np.array(cw).reshape(-1)
+    
+    if shorting:
+        print(f'Simulating {N} timeseries for each type of portfolio where shorting is allowed')
+    else:
+        print(f'Simulating {N} timeseries for each type of portfolio where shorting is NOT allowed')
+    
+    print(f'-'*85)
+    
+    # ii. simulate and plot each type of portfolio
+    mvsim = sim_pf(rdfclean,mvw,'minimum variance',N,t)
+    tsim = sim_pf(rdfclean,tw,'efficient tangent',N,t)
+    csim = sim_pf(rdfclean,cw,'optimal calmar ratio (shorting not allowed)',N,t)
+
+
 
 
 
