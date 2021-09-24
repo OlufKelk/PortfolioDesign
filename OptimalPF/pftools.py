@@ -24,11 +24,9 @@ def csv_extractor(ticker,apath):
 
 def yahoo_extractor(ticker, start, end):
     # a. loading total dataset from yahoo
-#     temp_df = web.DataReader(ticker, 'yahoo', start, end)
     temp_df = web.DataReader(ticker, 'yahoo', start, end)['Adj Close']
     
     # b. filtering and renaming columns
-#     temp_df = pd.DataFrame(temp_df['Adj Close']).rename(columns = {'Adj Close': ticker})
     temp_df = pd.DataFrame(temp_df).rename(columns = {'Adj Close': ticker})
     return temp_df
 
@@ -350,7 +348,7 @@ def optimize_pf(pftype,sigma,mu,df,N,shorting = False):
     wopt = np.nan # initialize optimal weights
     
     # iv. creating bounds based on whether short-selling is allowed or not
-    np.random.seed(1986)
+    np.random.seed = 1995
     if shorting == True:
         w0s = np.random.uniform(-1+1e-8,1-1e-8,size = (N,M))
         bound = (-1+1e-8,1-1e-8)
@@ -466,8 +464,8 @@ def optimize_pf(pftype,sigma,mu,df,N,shorting = False):
 ##################################
 ## simple portfolio simulations ##
 ##################################
-def sim_pf(rdf, weights, pftype, N = 1000, t = 60):
-    # i. preparing data and storing the simulations
+def sim_pf(rdf, weights, N = 1000, t = 60):
+    # i. fixing seed and preparing storage of simulations
     np.random.seed = 1995
     simulations = np.zeros((N,t+1))
     
@@ -485,19 +483,13 @@ def sim_pf(rdf, weights, pftype, N = 1000, t = 60):
     dfsimulations = pd.DataFrame(simulations).T
     
     # iv. plotting simulated return paths
-    fig = plt.figure(figsize = (10,6))
+    fig = plt.figure(figsize = (12,8))
     plt.plot(dfsimulations, linewidth = 1, alpha = .1, color = 'blue')
-    fig.suptitle(f'{N} timeseries of cumulative return over {t} randomly chosen days, for {pftype} portfolio', fontsize = 14)
+    plt.plot(dfsimulations.quantile([.025,.5,.975], axis = 1).T, label = ['2.5th percentile', '50th percentile (median)','97.5th percentile'])
+    plt.legend(frameon = True)
     plt.xlabel('Days', fontsize = 12)
-    plt.ylabel('pct. return',fontsize = 12);
-    
-    # v. plotting simulated returns paths quantiles
-    fig = plt.figure(figsize = (10,6))
-    plt.plot(dfsimulations.quantile([.025,.5,.975], axis = 1).T)
-    fig.suptitle(f'{N} timeseries of cumulative return over {t} randomly chosen days, for {pftype} portfolio', fontsize = 14)
-    plt.legend(['2.5 quantile', 'Median','97.5 quantile'])
-    plt.xlabel('Days', fontsize = 12)
-    plt.ylabel('pct. return',fontsize = 12);
+    plt.ylabel('pct. return',fontsize = 12)
+    plt.show();
     
     return dfsimulations
 
@@ -515,12 +507,17 @@ def simulated_portfolios(mvw, tw, cw, rdf, N = 1000, t = 60, shorting = False):
     else:
         print(f'Simulating {N} timeseries for each type of portfolio where shorting is NOT allowed')
     
-    print(f'-'*85)
+    print(f'-'*80)
     
     # ii. simulate and plot each type of portfolio
-    mvsim = sim_pf(rdfclean,mvw,'minimum variance',N,t)
-    tsim = sim_pf(rdfclean,tw,'efficient tangent',N,t)
-    csim = sim_pf(rdfclean,cw,'optimal calmar ratio (shorting not allowed)',N,t)
+    print(f'\nSimulates the minimum variance portfolio {N} times over {t} days')
+    mvsim = sim_pf(rdfclean,mvw,N,t)
+    print(f'-'*100)
+    print(f'\nSimulates the efficient tangent portfolio {N} times over {t} days')
+    tsim = sim_pf(rdfclean,tw,N,t)
+    print(f'-'*100)
+    print(f'Simulates the optimal calmar ratio portfolio (shorting is not allowed) {N} times over {t} days')
+    csim = sim_pf(rdfclean,cw,N,t)
 
 
 
