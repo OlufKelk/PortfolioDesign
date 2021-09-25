@@ -7,6 +7,7 @@ import seaborn as sns
 import pandas_datareader.data as web
 from scipy import optimize
 
+
 ##################
 ## data section ##
 ##################
@@ -23,10 +24,10 @@ def csv_extractor(ticker,apath):
 
 
 def yahoo_extractor(ticker, start, end):
-    # a. loading total dataset from yahoo
+    # a. loading dataset from yahoo and only keeping adjusted close column
     temp_df = web.DataReader(ticker, 'yahoo', start, end)['Adj Close']
     
-    # b. filtering and renaming columns
+    # b. renaming column
     temp_df = pd.DataFrame(temp_df).rename(columns = {'Adj Close': ticker})
     return temp_df
 
@@ -42,10 +43,10 @@ def df_generator(tickers, method, apath = None, start = None, end = None):
     for i in tickers:
 
         # ii.a. extracting data from yahoo database
-        if method == 'yahoo':
+        if method.lower() == 'yahoo':
             # Message regarding datatime input
             if start == None and msg == 0:
-                y5_ago = (dt.datetime.now()-dt.timedelta(days=5*365)).strftime('%Y-%m-%d')
+                y5_ago = (dt.datetime.now()-dt.timedelta(days=5*365.2425)).strftime('%Y-%m-%d')
                 msg += 1
                 print(f'No starttime selected, has therefore chosen default closest to (5 years before today) {y5_ago}')
                 
@@ -56,7 +57,7 @@ def df_generator(tickers, method, apath = None, start = None, end = None):
 
             vector = yahoo_extractor(i, start, end)
         # ii.b extracting data from investing.com csv-files
-        elif method == 'csv':
+        elif method.lower() == 'csv':
             assert apath != None, 'Please denote the absolute path to csv-file(s)'
             vector = csv_extractor(i, apath)
         
@@ -339,88 +340,110 @@ def num_optimal_portfolios(df,mu,N=50,shorting = False):
     return mvwdf, twdf, cwdf
 
 
-
 def optimize_pf(pftype,sigma,mu,df,N,shorting = False):
-    # i. initiating
+    # i. establishing names, number of assets and initiating storage
     names = df.columns
     M = len(names)
     fopt = np.inf # initialize optimal value
     wopt = np.nan # initialize optimal weights
+    ws = [] # storing all optimal weights in list
+    fs = [] # storing all optimal values of interest in list
+    attempt = [] # storing the speficic no attempt
     
-    # iv. creating bounds based on whether short-selling is allowed or not
-    np.random.seed = 1995
+    # ii. creating bounds based on whether short-selling is allowed or not
+    rng = np.random.default_rng(1995)
     if shorting == True:
-        w0s = np.random.uniform(-1+1e-8,1-1e-8,size = (N,M))
-        bound = (-1+1e-8,1-1e-8)
-        if pftype == 'calmar':
+        w0s = rng.uniform(-1+1e-8,1-1e-8,size = (N,M))
+        bound = (-1+1e-8,1-1e-8)    
+        # a. Calmar ration cannot be solved with shorting allowed??
+        if pftype.lower() == 'calmar':
             print(f'Currently no numerical solution for maximum calmar ratio portfolio with shorting - will therefore be solved for\nSHORTING IS NOT ALLOWED')
             # bounds, weights cannot be negative, i.e. short-selling is not allowed
-            w0s = np.random.uniform(1e-8,1-1e-8,size = (N,M))
+            w0s = rng.uniform(1e-8,1-1e-8,size = (N,M))
             bound = (1e-8,1-1e-8)
     else:
         # bounds, weights cannot be negative, i.e. short-selling is not allowed
-        w0s = np.random.uniform(1e-8,1-1e-8,size = (N,M))
+        w0s = rng.uniform(1e-8,1-1e-8,size = (N,M))
         bound = (1e-8,1-1e-8)
     bounds = ((bound, ) * M)
 
-    print(f'-----------------------------------------------------------------------------------------------')
+    print(f'-'*55)
+    
     # iii. objective functions
-    if pftype == 'minvar':
+    if pftype.lower() == 'minvar':
         optimizing = 'variance'
         obj = lambda x: mvar(x,sigma)
         print(f'Will numerically solve the minimum variance portfolio')
-    elif pftype == 'tangent':
+    elif pftype.lower() == 'tangent':
         optimizing = 'Sharpe Ratio'
         obj = lambda x: -tangent(x,sigma,mu)
         print(f'Will numerically solve the efficient tangent portfolio')
-    elif pftype == 'calmar':
+    elif pftype.lower() == 'calmar':
         optimizing = 'Calmar Ratio'
         obj = lambda x: -calmar(x,df,mu)[1]
         print(f'Will numerically solve the calmar portfolio')
     else:
         print(f'Can only optimize portfolios: minimum variance (pftype = minvar), efficient tangent (pftype = tangent) and calmar ratio (pftype = calmar)')
     
-    print(f'Multistart optimizing - prints every time the optimal solution improves ')
-    print(f'-----------------------------------------------------------------------------------------------')
-    # v. multistart using SLSQP (bounded) minimizer
+    print(f'Multistart optimization')
+    print(f'-'*55)
+    
+    # iv. multistart using SLSQP (bounded) minimizer
     for i, w0 in enumerate(w0s):
         # a. bounded optimization for given initial weights
         result = optimize.minimize(obj,w0,method = 'SLSQP',
                                   bounds=bounds)
         
         # b. storing solution (optimized value and its weights)
-        ws = result.x
         f = result.fun
 
-        # c. printing first 5 optimizations or if better than previously seen
+        # c. storing the optimal solution and eventual better optimal solutions
         if f < fopt:
-            # 1. normalizing
-            weights = ws/sum(ws)
+            # 1. extracting weights from the optimal solution
+            weights = result.x
             
-            # 2. storing optimal value
-            if f < fopt:
-                fopt = f
-                wopt = weights
-                ropt = wopt @ mu
+            # 2. storing optimal value, its weights and corresponding return
+            fopt = f
+            wopt = weights/sum(weights)
+            ropt = wopt @ mu
             
-            # 3. making list presentable
-            weights = [round(w,2) for w in weights]
-            w0 = [round(w,2) for w in w0]
-            
-            if pftype == 'minvar':
+            # 3. making sure the sign is proper for the given portfolio
+            if pftype.lower() == 'minvar':
                 f = f
             else:
                 f = -f
-            # 4. print statement
-            print(f'Attempt {i+1} of {N} - {pftype} portfolio - with w0 (initial guess) = {w0}')
-            print(f'Weights converged at {weights} with {optimizing} = {f:.2f}.\n')
             
+            # 4. storing all improved solutions for eventual print statement
+            fs.append(f)
+            ws.append(wopt)
+            attempt.append(i)
+            
+
+    # v. summarize the performed optimizations
+    print(f'Performed multistart optimization with N = {N} total attempts')
+    print(f'The optimal solution improved {len(ws)} times')
     
-    if pftype == 'minvar':
+    
+    # vi. print statement depending on whether optimal solutions have changed noticably during multistart optimization
+    wsols = np.around(np.array(ws),2)
+    testsols = np.all(wsols == wsols[0], axis=1)
+    if np.sum(testsols) < len(testsols):
+        print(f'The improvements of the optimal solution resulted in a deviation of allocation of more than 1 pct. for at least 1 asset.')
+        print(f'All optimal solution are as follows:')
+        print(f'-'*22)
+        for i,w in enumerate(wsols):
+            print(f'Attempt {attempt[i]} had weights: {w*100} with {optimizing} = {fs[i]:.2f}\n')
+        print(f'-'*22)
+    else:
+        print(f'The improvements of the optimal solution resulted in no notable deviations of allocation.')
+    
+    
+    # vii. storing optimal portfolio weights and other stats
+    if pftype.lower() == 'minvar':
         vopt = fopt
         sropt = ropt/np.sqrt(vopt)
         mdd, cropt = calmar(wopt,df,mu)
-    elif pftype == 'tangent':
+    elif pftype.lower() == 'tangent':
         vopt = wopt@sigma@wopt
         sropt = -fopt
         mdd, cropt = calmar(wopt,df,mu)
@@ -429,9 +452,7 @@ def optimize_pf(pftype,sigma,mu,df,N,shorting = False):
         sropt = ropt/np.sqrt(vopt)
         mdd, cropt = calmar(wopt,df,mu)
     
-    # vi. saving weights and portfolio stats
-    nwopt = wopt*100
-    nwopt = [round(w,2) for w in nwopt]
+    nwopt = np.around(wopt*100,2)
     wpfdf = pd.DataFrame({'Ticker':names, 'weight':nwopt})
     wpfdf = wpfdf.set_index('Ticker')
     statspfdf = pd.DataFrame.from_dict({'Annualized return':round(ropt,2),'Volatility':round(np.sqrt(vopt),2),
@@ -439,25 +460,13 @@ def optimize_pf(pftype,sigma,mu,df,N,shorting = False):
                                         'Calmar ratio':round(cropt,2)},
                                        orient = 'index', columns = ['stats'])
     
-    
-    
-    # vii. printing best solution
-    # find some way to evaluate the variation of optimal solution
-    # a way of evaluating whether it's a local or global optimization
-#     if :
-#         print(f'\nThe {pftype} portfolio from {N} total attempts (multistart) has converged with NOTABLE DIFFERENCES indicating a potential problem with local minimas.\nThe best optimal portfolio ended up being:\n')
-#     else:
-    print(f'-----------------------------------------------------------------------------------------------')
-    print(f'\nThe {pftype} portfolio from {N} total attempts (multistart) has converged with no notable differences the optimization outcome.\nThe optimal portfolio ended up being:\n')
+    # viii. summarize the best optimal solution
+    print(f'\nThe optimal portfolio allocation ended up being:')
     display(wpfdf)
-#     print(f'{wpfdf}\n')
-    print(f'With portfolio characteristics:\n')
+    print(f'With portfolio characteristics:')
     display(statspfdf)
-#     print(f'{statspfdf}\n')
-    print(f'-----------------------------------------------------------------------------------------------')
     
     return wpfdf, statspfdf
-
 
 
 
@@ -465,8 +474,7 @@ def optimize_pf(pftype,sigma,mu,df,N,shorting = False):
 ## simple portfolio simulations ##
 ##################################
 def sim_pf(rdf, weights, N = 1000, t = 60):
-    # i. fixing seed and preparing storage of simulations
-    np.random.seed = 1995
+    # i. preparing storage of simulations
     simulations = np.zeros((N,t+1))
     
     # ii. drawing t random days N times 
