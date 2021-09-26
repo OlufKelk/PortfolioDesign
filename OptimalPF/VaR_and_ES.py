@@ -2,11 +2,6 @@ import numpy as np
 from scipy import optimize
 import pandas as pd
 from scipy.stats import norm
-from numba import njit, prange
-# import matplotlib.pyplot as plt
-# import datetime as dt
-# import seaborn as sns
-# import pandas_datareader.data as web
 
 ####################
 ## data unpacking ##
@@ -36,10 +31,6 @@ def data_prep(df,ticker):
 
 
 
-
-
-
-
 #################################
 ## estimate ARCH(1) parameters ##
 #################################
@@ -54,7 +45,6 @@ def ARCH1_ll(theta,logR):
     Returns:
     (float): returns the log-likelihood of the ARCH(1)-model for the data (logR) and the parameters (theta)
     '''
-    
     # i. unpacking parameter values
     omega = theta[0]
     alpha = theta[1]
@@ -68,13 +58,13 @@ def ARCH1_ll(theta,logR):
     sigma2[0] = 1 # starting at 1
     
     # iv. estimating sigma2 in ARCH(1,1) process
-    for t in range(1,T):
-        sigma2[t] = omega+alpha*logR[t-1]**2
+    sigma2[1:] = omega+alpha*logR[:-1]**2
     
     # v. calculating the log-likelihood to be optimized (negative)
     LogL = -np.sum(-np.log(sigma2)-logR**2/sigma2)
     
     return LogL
+
 
 
 def ARCH1_est(ticker, df, printres = True):
@@ -88,9 +78,7 @@ def ARCH1_est(ticker, df, printres = True):
 
     Returns:
     (tuple): tuple containing 3 elements. First the estimated omega, next the estimates alpha and lastly the maximized log-likelihood
-    '''
-    
-    
+    '''    
     # i. retrieving data
     _, logR = data_prep(df,ticker)
     
@@ -145,7 +133,6 @@ def VaRES(omega,a,df,ticker,alpha,h,M,printres = True):
     Returns:
     (dataframe): dataframe containing the 2 period loss, 2 period VaR and ES for both gaussian and ARCH(1) returns 
     '''
-    
     # i. initializing
     dates, logR = data_prep(df,ticker)
     T = len(logR)
@@ -190,8 +177,8 @@ def VaRES(omega,a,df,ticker,alpha,h,M,printres = True):
     
     VaR_ARCH1 = np.quantile(simr,1-alpha, axis = 0) # approximate VaR based on simulated losses
     # the two lines below apply for a GARCH process where r_t+h isn't conditionally gaussian (conditional on I_t)
-#     loss_exceeds_VaR = simr > VaR_ARCH1[None,]
-#     ES_ARCH1 = np.mean(simr*loss_exceeds_VaR, axis = 0)/alpha # approximate ES based on simulated losses and VaR
+    # loss_exceeds_VaR = simr > VaR_ARCH1[None,]
+    # ES_ARCH1 = np.mean(simr*loss_exceeds_VaR, axis = 0)/alpha # approximate ES based on simulated losses and VaR
     # However in an ARCH(1)-process, this isn't a problem
     ES_ARCH1 =  np.sqrt(np.var(simr, axis = 0))*norm.pdf(norm.ppf(1-alpha))/alpha
     
@@ -225,18 +212,6 @@ def VaRES(omega,a,df,ticker,alpha,h,M,printres = True):
     return df
 
 
-###########
-## plots ##
-###########
-
-
-
-####################
-## call functions ##
-####################
-
-
-
 
 ###########
 ## to-do ##
@@ -244,7 +219,6 @@ def VaRES(omega,a,df,ticker,alpha,h,M,printres = True):
 # create GARCH(1,1) model
 ## Vary whether you want to estimate an ARCH(1) model or a GARCH(1,1) model.
 # load data properly from github
-# create figure for VaR and ES
 # calculate simple unconditional valuation of VaR E[loss>VaR] should be (close to) alpha
 ## this one fits poorly for some reason. Should be investigated at some point
 
