@@ -221,4 +221,4 @@ def VaRES(omega,a,df,ticker,alpha,h,M,printres = True):
 # load data properly from github
 # calculate simple unconditional valuation of VaR E[loss>VaR] should be (close to) alpha
 ## this one fits poorly for some reason. Should be investigated at some point
-
+# Should add VaR and ES for portfolio and not just some ticker

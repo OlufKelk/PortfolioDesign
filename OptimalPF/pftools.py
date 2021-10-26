@@ -11,19 +11,19 @@ from scipy import optimize
 ##################
 ## data section ##
 ##################
-def csv_extractor(ticker,apath):
+def csv_extractor(ticker,path):
     '''
-    Loads csv-file, on a selected absolute local path, for a given ticker and spits out series of ajusted close prices
+    Loads csv-file, on a selected local path, for a given ticker and spits out series of ajusted close prices
     
     Args:
     ticker (string): should be exact name of csv-file - oftentimes ticker name
-    apath (string): denotes the local absolute path to the given csv-file
+    path (string): denotes the absolute or relative path to the given csv-file
     
     Returns:
     (dataframe): dataframe containing adjusted close for given ticker along with an index of dates    
     '''
     # a. reading csv as pandas dataframe, renaming and formating date column
-    temp_df = pd.read_csv(apath+ticker+'.csv', usecols = ['Date', 'Price'])
+    temp_df = pd.read_csv(path+ticker+'.csv', usecols = ['Date', 'Price'])
     temp_df = temp_df.rename(columns = {'Price': ticker})
     temp_df['Date'] = pd.to_datetime(temp_df['Date'])
     
@@ -55,14 +55,14 @@ def yahoo_extractor(ticker, start, end):
 
 
 
-def df_generator(tickers, method, apath = None, start = None, end = None):
+def df_generator(tickers, method, path = None, start = None, end = None):
     '''
     Creates adjusted close dataframe from a list of tickers based on some method (being yahoo database or csv-files).
     
     Args:
     tickers (list): list of strings containing either yahoo databse tickers, or csv-file names.
     method (string): either 'yahoo' for yahoo extractir or 'csv' for local csv extractor
-    apath (string): denotes the absolute path of csv-files. Necessary when using csv extractor (method = 'csv')
+    path (string): denotes the absolute path of csv-files. Necessary when using csv extractor (method = 'csv')
     start (datetime): first date of ticker data. Can be included when using yahoo extractor (method = 'yahoo')
     end (datetime): last date of ticker data. Can be included when using yahoo extractor (method = 'yahoo')
     
@@ -93,8 +93,8 @@ def df_generator(tickers, method, apath = None, start = None, end = None):
             vector = yahoo_extractor(i, start, end)
         # ii.b extracting data from investing.com csv-files
         elif method.lower() == 'csv':
-            assert apath != None, 'Please denote the absolute path to csv-file(s)'
-            vector = csv_extractor(i, apath)
+            assert path != None, 'Please denote the absolute or relative path to csv-file(s)'
+            vector = csv_extractor(i, path)
         
         # ii.c doesn't recognize data-extraction-method
         else:
@@ -732,20 +732,5 @@ def random_choice_noreplace(rdf, N, t,rng):
 ###########
 ## to-do ##
 ###########
-# optimal portfolio
-## simulated results (in parallel)
-## Get stats for the portfolio
-
-
-
-# important
-# should not use fillnas when generating dataframe.
-## data will look stable when estimating as ARCH(1)
-## however having na's will probably fuck up the percentage returns?
-
-
-
-
-###############
-## graveyard ##
-###############
+# pararellization possible?
+# to histogram: add 5 percentile line
