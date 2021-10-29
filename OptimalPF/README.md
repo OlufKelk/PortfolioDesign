@@ -1,7 +1,7 @@
 # Creating the Optimal Portfolio(s)
 
-Stock picking and portfolio composition can be chaotic. This simple script aim at using historic return data for some selected list of stocks (or other assets) in order to create the 3 optimal portfolios. This way one can quickly create a portfolio based on the (historic) data.
-The 3 optimal portfolios are the *i)* minimum variance portfolio, *ii)* the efficient tangent portfolio as well as the *iii)* maximum calmar ratio portfolio. The first 2 portfolios have an optimal allocation with and without short-selling and are solved both analytically and numerically. 
+Stock picking and portfolio composition can be chaotic. This simple script aim at using historic return data for some selected list of stocks (or other assets) in order to create the 3 optimal portfolios. This way one can quickly create a portfolio based on the (historic) data.<br/>
+The 3 optimal portfolios are the *i)* minimum variance portfolio, *ii)* the efficient tangent portfolio as well as the *iii)* maximum calmar ratio portfolio. The first 2 portfolios have an optimal allocation with and without short-selling and are solved both analytically and numerically. <br/>
 The [notebook](Porfolio_notebook.ipynb), being an example of the available function's capabilities, is constructed such that:
 1. Data for a given list of assets are imported and manipulated properly, either using local csv-files or the Yahoo-database.
 2. The list of assets are then described both visually (correlation heatmap, indexed returns and return distribution) and numeri (annualized return, volatility, 1 month max drawdown, Sharpe ratio, Calmar ratio)
